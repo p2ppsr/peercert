@@ -9,12 +9,14 @@ PeerCert provides a clean API for issuing, receiving, and publicly revealing pee
 - ✅ **Direct Certificate Issuance** - Issue certificates directly from one peer to another
 - ✅ **Integrated MessageBox Delivery** - Send certificates automatically via MessageBox
 - ✅ **Multiple Delivery Methods** - Supports MessageBox, QR codes, NFC, files, and custom channels
-- ✅ **No Server Required** - Eliminates the need for a central certifier server
-- ✅ **Selective Disclosure** - Reveal only selected certificate fields publicly
+- ✅ **Selective Disclosure** - Create verifiable certificates revealing only selected fields
+- ✅ **Automatic Verification** - Verify shared certificates with optional automatic revocation checking
+- ✅ **Certificate Revocation** - Revoke certificates you issued via DID tokens on BSV overlay
+- ✅ **Revocation Checking** - Check if certificates have been revoked
 - ✅ **Public Reveal** - Broadcast certificates to BSV overlay for public verification
+- ✅ **No Server Required** - Eliminates the need for a central certifier server
 - ✅ **Cryptographic Verification** - Full signature verification using BSV identity keys
 - ✅ **TypeScript Support** - Full type safety and IntelliSense support
-- ✅ **Certificate Revocation** - Revocation via DID tokens on BSV overlay network
 
 ## Installation
 
@@ -41,7 +43,7 @@ await peercert.issue({
     company: 'ACME Corp',
     start_date: '2024-01-15'
   },
-  autoSend: true // Automatically sends via MessageBox!
+  autoSend: true // Automatically sends via MessageBoxClient!
 })
 ```
 
@@ -58,7 +60,6 @@ const masterCert = await peercert.issue({
 // Send via MessageBox manually
 await peercert.send({
   recipient: '03abc123...',
-  certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
   serializedCertificate: JSON.stringify(masterCert)
 })
 
@@ -153,6 +154,90 @@ console.log('Certificate revealed on overlay:', broadcastResult.txid)
 // Anyone can now verify these fields without contacting the certifier
 ```
 
+### Verifiable Certificates (Selective Disclosure)
+
+Create certificates that reveal only specific fields to a verifier:
+
+```typescript
+// You have a certificate in your wallet
+const certs = await wallet.listCertificates({
+  certifiersRequired: ['all'], // Get certificates with keyring
+  limit: 1
+})
+
+// Create a verifiable certificate revealing only some fields
+const verifiableCert = await peercert.createVerifiableCertificate({
+  certificate: certs.certificates[0],
+  verifierPublicKey: '03verifier...',
+  fieldsToReveal: ['role', 'company'] // Only these fields revealed
+})
+
+// Send to verifier via MessageBox
+await peercert.send({
+  recipient: '03verifier...',
+  serializedCertificate: JSON.stringify(verifiableCert),
+  issuance: false // This is for inspection, not storage
+})
+```
+
+**Verifying Shared Certificates:**
+
+```typescript
+// Receive and verify shared certificates
+const incoming = await peercert.listIncomingCertificates()
+
+for (const cert of incoming) {
+  // Verify with automatic revocation check
+  const result = await peercert.verifyVerifiableCertificate(
+    cert.serializedCertificate,
+    { checkRevocation: true }
+  )
+  
+  if (result.verified) {
+    if (result.revocationStatus?.isRevoked) {
+      console.log('⚠️  Certificate has been revoked!')
+    } else {
+      console.log('✅ Certificate is valid')
+      console.log('Revealed fields:', result.fields)
+    }
+  }
+}
+```
+
+### Certificate Revocation
+
+**Revoking Certificates You Issued:**
+
+```typescript
+// Get a certificate you issued
+const issuedCerts = await wallet.listCertificates({
+  limit: 1
+})
+
+// Revoke it
+const result = await peercert.revoke(issuedCerts.certificates[0])
+
+if (result.success) {
+  console.log('Certificate revoked! TXID:', result.txid)
+} else {
+  console.error('Revocation failed:', result.error)
+}
+```
+
+**Checking Revocation Status:**
+
+```typescript
+// Check if any certificate has been revoked
+const status = await peercert.checkRevocation(certificate)
+
+if (status.isRevoked) {
+  console.log('⚠️  Certificate has been revoked')
+  console.log(status.message)
+} else {
+  console.log('✅ Certificate is still valid')
+}
+```
+
 ## Use Cases
 
 ### Trust Networks
@@ -217,10 +302,14 @@ Peer B (Optional) → peercert.reveal() → Broadcasts to BSV Overlay
 **Under the hood:**
 1. **Issuer** creates a `MasterCertificate` with encrypted fields
 2. **Issuer** signs the certificate with their identity key  
-3. **Issuer** creates a DID revocation outpoint on-chain
+3. **Issuer** creates a DID revocation outpoint on-chain (tagged with serial number)
 4. **Recipient** receives and verifies the signature
 5. **Recipient** stores the certificate in their wallet using `acquireCertificate()`
-6. **Recipient** can publicly reveal selected fields to the overlay network
+6. **Recipient** can:
+   - Publicly reveal selected fields to the overlay network
+   - Create verifiable certificates revealing only selected fields to specific verifiers
+   - Check revocation status via DID overlay queries
+7. **Issuer** can revoke issued certificates by spending the DID token
 
 ## API Reference
 
@@ -293,8 +382,8 @@ Send a certificate to a recipient via MessageBox.
 
 **Parameters:** `SendOptions`
 - `recipient: string` - Recipient's identity public key
-- `certificateType: string` - Certificate type identifier
 - `serializedCertificate: string` - Serialized certificate JSON
+- `issuance?: boolean` - Whether this is an issuance (true, default) or sharing for inspection (false)
 
 **Returns:** `Promise<void>`
 
@@ -323,9 +412,107 @@ Acknowledge a certificate message in MessageBox (marks it as read/processed).
 Listen for live certificate messages from MessageBox.
 
 **Parameters:**
-- `callback: (serializedCertificate: string, messageId: string, sender: string) => void | Promise<void>`
+- `callback: (serializedCertificate: string, messageId: string, sender: string, issuance: boolean) => void | Promise<void>`
+  - `serializedCertificate` - The certificate JSON
+  - `messageId` - MessageBox message ID
+  - `sender` - Sender's public key
+  - `issuance` - Whether this is an issuance (true) or shared for inspection (false)
 
 **Returns:** `Promise<void>` - Starts listening (call is async but keeps connection open)
+
+### `peercert.createVerifiableCertificate(options)`
+
+Create a verifiable certificate that reveals only selected fields to a verifier.
+
+**Parameters:** `CreateVerifiableCertificateOptions`
+- `certificate: WalletCertificate` - Certificate from your wallet (must have keyring - use `certifiersRequired: ['all']` when listing)
+- `verifierPublicKey: string` - Public key of who will verify the certificate
+- `fieldsToReveal: string[]` - Which fields to reveal (other fields remain encrypted)
+
+**Returns:** `Promise<VerifiableCertificate>` - Verifiable certificate with selective field revelation
+
+**Example:**
+```typescript
+const certs = await wallet.listCertificates({
+  certifiers: ['certifierIdentityKey'], // Required to get keyring
+  limit: 1
+})
+
+const verifiable = await peercert.createVerifiableCertificate({
+  certificate: certs.certificates[0],
+  verifierPublicKey: '03verifier...',
+  fieldsToReveal: ['role', 'company']
+})
+```
+
+### `peercert.verifyVerifiableCertificate(serializedCertificate, options?)`
+
+Verify and decrypt a verifiable certificate shared with you.
+
+**Parameters:**
+- `serializedCertificate: string` - Serialized verifiable certificate JSON
+- `options?: VerifyVerifiableCertificateOptions`
+  - `checkRevocation?: boolean` - Automatically check if certificate has been revoked (default: false)
+
+**Returns:** `Promise<VerifyVerifiableCertificateResult>`
+- `verified: boolean` - Whether verification succeeded
+- `fields?: Record<string, string>` - Decrypted revealed fields
+- `revocationStatus?: RevocationStatus` - Revocation status if checkRevocation was enabled
+- `error?: string` - Error message if verification failed
+
+**Example:**
+```typescript
+const result = await peercert.verifyVerifiableCertificate(certString, {
+  checkRevocation: true
+})
+
+if (result.verified && !result.revocationStatus?.isRevoked) {
+  console.log('Valid certificate:', result.fields)
+}
+```
+
+### `peercert.checkRevocation(certificate)`
+
+Check if a certificate has been revoked.
+
+**Parameters:**
+- `certificate: WalletCertificate` - Certificate to check
+
+**Returns:** `Promise<RevocationStatus>`
+- `isRevoked: boolean` - Whether the certificate has been revoked
+- `revocationOutpoint: string` - The revocation outpoint that was checked
+- `message?: string` - Additional details about revocation status
+
+**Example:**
+```typescript
+const status = await peercert.checkRevocation(myCertificate)
+
+if (status.isRevoked) {
+  console.log('Certificate has been revoked')
+}
+```
+
+### `peercert.revoke(certificate)`
+
+Revoke a certificate that you issued.
+
+**Parameters:**
+- `certificate: WalletCertificate` - Certificate you issued (that you want to revoke)
+
+**Returns:** `Promise<RevokeResult>`
+- `success: boolean` - Whether revocation succeeded
+- `txid?: string` - Transaction ID of the revocation
+- `revocationOutpoint?: string` - The revocation outpoint that was spent
+- `error?: string` - Error message if revocation failed
+
+**Example:**
+```typescript
+const result = await peercert.revoke(issuedCertificate)
+
+if (result.success) {
+  console.log('Certificate revoked! TXID:', result.txid)
+}
+```
 
 ## Complete Example
 
@@ -385,11 +572,18 @@ console.log('Certificate revealed:', broadcastResult.txid)
 
 ## Security Considerations
 
-1. **Signature Verification**: The `receive()` method automatically verifies certificate signatures
+1. **Signature Verification**: The `receive()` and `verifyVerifiableCertificate()` methods automatically verify certificate signatures
 2. **Trust Model**: Certificates represent the issuer's attestation - trust is based on knowing and trusting the issuer
-3. **Selective Disclosure**: Use `reveal()` to share only necessary fields publicly on the overlay network
-4. **Revocation**: Certificates include DID-based revocation outpoints on the BSV blockchain
+3. **Selective Disclosure**: 
+   - Use `reveal()` to share only necessary fields publicly on the overlay network
+   - Use `createVerifiableCertificate()` to share selected fields privately with a specific verifier
+4. **Revocation**: 
+   - All certificates include DID-based revocation outpoints on the BSV blockchain
+   - Use `checkRevocation()` to manually verify revocation status
+   - Use `verifyVerifiableCertificate()` with `checkRevocation: true` for automatic checking
+   - Issuers can revoke certificates they issued using `revoke()`
 5. **Private Keys**: Never share your wallet's private keys - certificates use identity-based encryption
+6. **Verifiable Certificates**: When creating verifiable certificates, only specified fields are decryptable by the verifier
 
 ## Development
 

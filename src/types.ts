@@ -3,7 +3,8 @@ import type {
   CertificateFieldNameUnder50Bytes,
   BroadcastResponse,
   BroadcastFailure,
-  PubKeyHex
+  PubKeyHex,
+  Base64String
 } from '@bsv/sdk'
 
 /**
@@ -87,6 +88,12 @@ export interface SendOptions {
 
   /** Serialized certificate data */
   serializedCertificate: string
+
+  /** 
+   * Whether this is an issuance (cert issued TO recipient) or sharing (cert shared FOR inspection)
+   * Defaults to true (issuance)
+   */
+  issuance?: boolean
 }
 
 /**
@@ -101,5 +108,81 @@ export interface IncomingCertificate {
 
   /** Sender's identity public key */
   sender: PubKeyHex
+
+  /** 
+   * Whether this is an issuance (cert issued TO you) or sharing (cert shared FOR inspection)
+   * true = use receive() to store, false = use verifyVerifiableCertificate() to inspect
+   */
+  issuance: boolean
+}
+
+/**
+ * Options for creating a verifiable certificate to share with a specific verifier
+ */
+export interface CreateVerifiableCertificateOptions {
+  /** The certificate from your wallet to create a verifiable version of */
+  certificate: WalletCertificate
+
+  /** Public key of the verifier who will decrypt the revealed fields */
+  verifierPublicKey: PubKeyHex
+
+  /** Fields to reveal to the verifier (other fields remain encrypted) */
+  fieldsToReveal: CertificateFieldNameUnder50Bytes[]
+}
+
+/**
+ * Options for verifying a verifiable certificate
+ */
+export interface VerifyVerifiableCertificateOptions {
+  /** Whether to automatically check revocation status */
+  checkRevocation?: boolean
+}
+
+/**
+ * Result from verifying a verifiable certificate
+ */
+export interface VerifyVerifiableCertificateResult {
+  /** Whether verification succeeded */
+  verified: boolean
+
+  /** The decrypted fields if verification succeeded */
+  fields?: Record<string, string>
+
+  /** Revocation status if checkRevocation was enabled */
+  revocationStatus?: RevocationStatus
+
+  /** Error message if verification failed */
+  error?: string
+}
+
+/**
+ * Result from checking certificate revocation status
+ */
+export interface RevocationStatus {
+  /** Whether the certificate has been revoked */
+  isRevoked: boolean
+
+  /** The revocation outpoint that was checked */
+  revocationOutpoint: string
+
+  /** Additional details if available */
+  message?: string
+}
+
+/**
+ * Result from revoking a certificate
+ */
+export interface RevokeResult {
+  /** Whether revocation succeeded */
+  success: boolean
+
+  /** Transaction ID of the revocation transaction */
+  txid?: string
+
+  /** The revocation outpoint that was spent */
+  revocationOutpoint?: string
+
+  /** Error message if revocation failed */
+  error?: string
 }
 

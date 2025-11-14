@@ -41,5 +41,10 @@ export type {
   RevealOptions,
   RevealResult,
   SendOptions,
-  IncomingCertificate as PendingCertificate
+  IncomingCertificate as PendingCertificate,
+  CreateVerifiableCertificateOptions,
+  VerifyVerifiableCertificateOptions,
+  VerifyVerifiableCertificateResult,
+  RevocationStatus,
+  RevokeResult
 } from './types.js'
