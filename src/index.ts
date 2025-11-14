@@ -41,7 +41,7 @@ export type {
   RevealOptions,
   RevealResult,
   SendOptions,
-  IncomingCertificate as PendingCertificate,
+  IncomingCertificate,
   CreateVerifiableCertificateOptions,
   VerifyVerifiableCertificateOptions,
   VerifyVerifiableCertificateResult,

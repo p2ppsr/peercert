@@ -221,7 +221,7 @@ export class PeerCert {
         certData.certifier,
         certData.revocationOutpoint,
         certData.fields,
-        certData.keyring,
+        certData.masterKeyring,
         certData.signature
       )
 
@@ -235,7 +235,7 @@ export class PeerCert {
         revocationOutpoint: certData.revocationOutpoint,
         fields: certData.fields,
         signature: certData.signature,
-        keyringForSubject: certData.keyring,
+        keyringForSubject: certData.masterKeyring,
         keyringRevealer: 'certifier',
         acquisitionProtocol: 'direct'
       }, this.options.originator)
@@ -451,8 +451,10 @@ export class PeerCert {
 
     return messages.map(msg => {
       try {
-        // Parse the message wrapper
-        const parsed = JSON.parse(msg.body as string)
+        // Parse the message wrapper (body is a JSON string from send())
+        const parsed = typeof msg.body === 'string'
+          ? JSON.parse(msg.body)
+          : msg.body as Record<string, any>
 
         return {
           serializedCertificate: parsed.serializedCertificate,
@@ -590,38 +592,33 @@ export class PeerCert {
       throw new Error('At least one field to reveal is required')
     }
 
-    // Type guard to check if certificate has keyring (from certifiersRequired: true)
-    if (!('keyringForSubject' in certificate)) {
-      throw new Error(
-        'Certificate must include keyring. Get it from wallet.listCertificates() with certifiersRequired: true'
-      )
-    }
-
-    const certWithKeyring = certificate as WalletCertificate & {
-      keyringForSubject: Record<string, string>
-    }
-
     // Create keyring for the verifier using the MasterCertificate static method
+    // Note: ts-sdk naming inconsistency - wallet.listCertificates() returns "keyring" 
+    // but MasterCertificate.createKeyringForVerifier() expects "masterKeyring" parameter
+    const certWithKeyring = certificate as WalletCertificate & {
+      keyring: Record<string, string>
+    }
+
     const keyringForVerifier = await MasterCertificate.createKeyringForVerifier(
       this.wallet,
-      certWithKeyring.certifier,
+      certificate.certifier,
       verifierPublicKey,
-      certWithKeyring.fields,
+      certificate.fields,
       fieldsToReveal,
-      certWithKeyring.keyringForSubject,
-      certWithKeyring.serialNumber
+      certWithKeyring.keyring,  // This IS the master keyring, just named differently
+      certificate.serialNumber
     )
 
     // Create and return the VerifiableCertificate
     return new VerifiableCertificate(
-      certWithKeyring.type,
-      certWithKeyring.serialNumber,
-      certWithKeyring.subject,
-      certWithKeyring.certifier,
-      certWithKeyring.revocationOutpoint,
-      certWithKeyring.fields,
+      certificate.type,
+      certificate.serialNumber,
+      certificate.subject,
+      certificate.certifier,
+      certificate.revocationOutpoint,
+      certificate.fields,
       keyringForVerifier,
-      certWithKeyring.signature
+      certificate.signature
     )
   }
 
