@@ -37,7 +37,7 @@ const peercert = new PeerCert()
 // Issue and automatically send via MessageBox
 await peercert.issue({
   certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
-  subjectPublicKey: '03abc123...', // Peer's identity key
+  subjectIdentityKey: '03abc123...', // Peer's identity key
   fields: {
     role: 'Engineer',
     company: 'ACME Corp',
@@ -53,7 +53,7 @@ await peercert.issue({
 // Issue the certificate
 const masterCert = await peercert.issue({
   certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
-  subjectPublicKey: '03abc123...',
+  subjectIdentityKey: '03abc123...',
   fields: { role: 'Engineer', company: 'ACME Corp' }
 })
 
@@ -245,7 +245,7 @@ Build decentralized reputation systems where peers vouch for each other:
 ```typescript
 await peercert.issue({
   certificateType: Utils.toBase64(Utils.toArray('reputation', 'utf8')),
-  subjectPublicKey: peerKey,
+  subjectIdentityKey: peerKey,
   fields: {
     rating: '5',
     completed_transactions: '47',
@@ -259,7 +259,7 @@ Peers can verify each other's identity attributes:
 ```typescript
 await peercert.issue({
   certificateType: Utils.toBase64(Utils.toArray('identity-verification', 'utf8')),
-  subjectPublicKey: peerKey,
+  subjectIdentityKey: peerKey,
   fields: {
     verified_name: 'true',
     verified_email: 'true',
@@ -273,7 +273,7 @@ Create professional endorsements without centralized platforms:
 ```typescript
 await peercert.issue({
   certificateType: Utils.toBase64(Utils.toArray('skill-endorsement', 'utf8')),
-  subjectPublicKey: peerKey,
+  subjectIdentityKey: peerKey,
   fields: {
     skill: 'Smart Contract Development',
     level: 'expert',
@@ -348,7 +348,7 @@ Issue a certificate to a peer.
 
 **Parameters:** `IssueOptions`
 - `certificateType: string` - Certificate type identifier (base64 encoded)
-- `subjectPublicKey: string` - The peer's identity public key
+- `subjectIdentityKey: string` - The peer's identity public key
 - `fields: Record<string, string>` - Certificate fields to attest
 - `autoSend?: boolean` - Automatically send via MessageBox (defaults to false)
 
@@ -528,7 +528,7 @@ const bobPublicKey = '02bob...'
 
 const masterCert = await alicePeercert.issue({
   certificateType: Utils.toBase64(Utils.toArray('professional-endorsement', 'utf8')),
-  subjectPublicKey: bobPublicKey,
+  subjectIdentityKey: bobPublicKey,
   fields: {
     skill: 'TypeScript Development',
     level: 'expert',

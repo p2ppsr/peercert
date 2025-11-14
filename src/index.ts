@@ -17,7 +17,7 @@
  * // Issue a certificate
  * const result = await peercert.issue({
  *   certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
- *   subjectPublicKey: '03abc...',
+ *   subjectIdentityKey: '03abc...',
  *   fields: { role: 'Engineer', company: 'ACME Corp' }
  * })
  * 

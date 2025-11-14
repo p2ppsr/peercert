@@ -39,7 +39,7 @@ import type {
  * // Issue a certificate
  * const result = await peercert.issue({
  *   certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
- *   subjectPublicKey: '03abc...',
+ *   subjectIdentityKey: '03abc...',
  *   fields: { role: 'Engineer', company: 'ACME Corp' }
  * })
  * 
@@ -117,7 +117,7 @@ export class PeerCert {
    * ```typescript
    * const result = await peercert.issue({
    *   certificateType: Utils.toBase64(Utils.toArray('skill', 'utf8')),
-   *   subjectPublicKey: '03abc123...',
+   *   subjectIdentityKey: '03abc123...',
    *   fields: { 
    *     javascript: 'expert',
    *     typescript: 'advanced'
@@ -129,10 +129,10 @@ export class PeerCert {
    * ```
    */
   async issue(options: IssueOptions): Promise<MasterCertificate> {
-    const { certificateType, subjectPublicKey, fields, autoSend } = options
+    const { certificateType, subjectIdentityKey, fields, autoSend } = options
 
     // Validate inputs
-    if (!subjectPublicKey || typeof subjectPublicKey !== 'string') {
+    if (!subjectIdentityKey || typeof subjectIdentityKey !== 'string') {
       throw new Error('Valid subject public key is required')
     }
     if (!certificateType || typeof certificateType !== 'string') {
@@ -147,14 +147,14 @@ export class PeerCert {
 
     // Create revocation outpoint using DID
     const revocationOutpoint = await this.createRevocationOutpoint(
-      subjectPublicKey,
+      subjectIdentityKey,
       serialNumber
     )
 
     // Create the master certificate using SDK
     const masterCert = await MasterCertificate.issueCertificateForSubject(
       this.wallet,
-      subjectPublicKey,
+      subjectIdentityKey,
       fields,
       certificateType,
       async () => revocationOutpoint,
@@ -164,7 +164,7 @@ export class PeerCert {
     // Auto-send via MessageBox if requested
     if (autoSend) {
       await this.send({
-        recipient: subjectPublicKey,
+        recipient: subjectIdentityKey,
         serializedCertificate: JSON.stringify(masterCert)
       })
     }
@@ -717,12 +717,12 @@ export class PeerCert {
    * @private
    */
   private async createRevocationOutpoint(
-    subjectPublicKey: string,
+    subjectIdentityKey: string,
     serialNumber: string
   ): Promise<string> {
     const response = await this.didClient.createDID(
       serialNumber,
-      subjectPublicKey
+      subjectIdentityKey
     )
 
     if (response.status === 'error') {

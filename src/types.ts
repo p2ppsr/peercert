@@ -35,10 +35,10 @@ export interface PeerCertOptions {
  */
 export interface IssueOptions {
   /** Base64-encoded certificate type identifier */
-  certificateType: string
+  certificateType: Base64String
 
   /** Public key of the certificate subject */
-  subjectPublicKey: string
+  subjectIdentityKey: PubKeyHex
 
   /** Certificate fields (key-value pairs to attest) */
   fields: Record<string, string>

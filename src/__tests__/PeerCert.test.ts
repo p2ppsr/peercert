@@ -107,7 +107,7 @@ describe('PeerCert', () => {
       await expect(
         peercert.issue({
           certificateType: 'test-type',
-          subjectPublicKey: '',
+          subjectIdentityKey: '',
           fields: { test: 'value' }
         })
       ).rejects.toThrow('Valid subject public key is required')
@@ -117,7 +117,7 @@ describe('PeerCert', () => {
       await expect(
         peercert.issue({
           certificateType: 'test-type',
-          subjectPublicKey: null as any,
+          subjectIdentityKey: null as any,
           fields: { test: 'value' }
         })
       ).rejects.toThrow('Valid subject public key is required')
@@ -127,7 +127,7 @@ describe('PeerCert', () => {
       await expect(
         peercert.issue({
           certificateType: '',
-          subjectPublicKey: '03abc123',
+          subjectIdentityKey: '03abc123',
           fields: { test: 'value' }
         })
       ).rejects.toThrow('Certificate type is required')
@@ -137,7 +137,7 @@ describe('PeerCert', () => {
       await expect(
         peercert.issue({
           certificateType: null as any,
-          subjectPublicKey: '03abc123',
+          subjectIdentityKey: '03abc123',
           fields: { test: 'value' }
         })
       ).rejects.toThrow('Certificate type is required')
@@ -147,7 +147,7 @@ describe('PeerCert', () => {
       await expect(
         peercert.issue({
           certificateType: 'test-type',
-          subjectPublicKey: '03abc123',
+          subjectIdentityKey: '03abc123',
           fields: {}
         })
       ).rejects.toThrow('At least one field is required')
@@ -157,7 +157,7 @@ describe('PeerCert', () => {
       await expect(
         peercert.issue({
           certificateType: 'test-type',
-          subjectPublicKey: '03abc123',
+          subjectIdentityKey: '03abc123',
           fields: null as any
         })
       ).rejects.toThrow('At least one field is required')
