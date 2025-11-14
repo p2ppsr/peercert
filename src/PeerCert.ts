@@ -10,6 +10,7 @@ import {
 } from '@bsv/sdk'
 import { DIDClient } from '@bsv/did-client'
 import { MessageBoxClient } from '@bsv/message-box-client'
+import { encodeCertificate, decodeCertificate } from './serialization'
 import type {
   PeerCertOptions,
   IssueOptions,
@@ -707,6 +708,66 @@ export class PeerCert {
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       }
     }
+  }
+
+  /**
+   * Encode a MasterCertificate to compact binary format (base64)
+   * Perfect for QR codes, NFC tags, URLs, and files
+   * 
+   * This is much more space-efficient than JSON:
+   * - Typical JSON: ~1500-2500 bytes
+   * - Binary format: ~400-800 bytes (50-70% smaller)
+   * 
+   * @param certificate - The MasterCertificate to encode
+   * @returns Base64-encoded compact binary representation
+   * 
+   * @example
+   * ```typescript
+   * const cert = await peercert.issue({...})
+   * const compact = PeerCert.encodeCertificate(cert)
+   * 
+   * // Use in QR code
+   * const qrData = `peercert:${compact}`
+   * 
+   * // Use in URL
+   * const url = `https://example.com/cert?data=${encodeURIComponent(compact)}`
+   * 
+   * // Save to file
+   * fs.writeFileSync('cert.pc', compact, 'utf8')
+   * ```
+   */
+  static encodeCertificate(certificate: MasterCertificate, outputFormat: 'binary' | 'base64' = 'base64'): string | Uint8Array {
+    return encodeCertificate(certificate, outputFormat)
+  }
+
+  /**
+   * Decode a compact binary certificate back to MasterCertificate data
+   * 
+   * @param encoded - Base64-encoded compact binary certificate
+   * @returns Certificate data that can be used to reconstruct a MasterCertificate
+   * 
+   * @example
+   * ```typescript
+   * // From QR code
+   * const qrData = 'peercert:AQd...'
+   * const compact = qrData.replace('peercert:', '')
+   * const certData = PeerCert.decodeCertificate(compact)
+   * 
+   * // Receive it
+   * const result = await peercert.receive(JSON.stringify(certData))
+   * ```
+   */
+  static decodeCertificate(encoded: string | Uint8Array, inputFormat: 'binary' | 'base64' = 'base64'): {
+    type: string
+    serialNumber: string
+    subject: string
+    certifier: string
+    revocationOutpoint: string
+    fields: Record<string, string>
+    masterKeyring: Record<string, string>
+    signature: string
+  } {
+    return decodeCertificate(encoded, inputFormat)
   }
 
   /**

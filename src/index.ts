@@ -34,6 +34,12 @@
 
 export { PeerCert } from './PeerCert.js'
 
+export {
+  encodeCertificate,
+  decodeCertificate,
+  estimateEncodedSize
+} from './serialization.js'
+
 export type {
   PeerCertOptions,
   IssueOptions,
