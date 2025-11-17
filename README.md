@@ -605,7 +605,7 @@ npm run build
 
 ## License
 
-PROPRIETARY
+Open BSV License
 
 ## Support
 
