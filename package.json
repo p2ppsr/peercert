@@ -28,9 +28,9 @@
   "author": "Peer-to-peer Privacy Systems Research, LLC",
   "license": "Proprietary",
   "dependencies": {
-    "@bsv/did-client": "^1.1.0",
-    "@bsv/message-box-client": "^1.4.5",
-    "@bsv/sdk": "^1.9.6"
+    "@bsv/did-client": "^1.1.2",
+    "@bsv/message-box-client": "^2.0.4",
+    "@bsv/sdk": "^2.0.5"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
