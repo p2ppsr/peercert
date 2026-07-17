@@ -115,7 +115,7 @@ export class PeerCert {
    * Returns the signed MasterCertificate, ready for transmission to the subject
    * (via autoSend, send(), JSON, or PeerCert.encodeCertificate for QR/NFC).
    *
-   * The certificate type may be a 32-byte base64 identifier or any
+   * The certificate type may be a base64 identifier (used as-is) or any
    * human-readable name (e.g. 'employment'), which is deterministically
    * normalized via {@link PeerCert.certificateTypeFromName}.
    *
@@ -823,7 +823,7 @@ export class PeerCert {
    *
    * Deterministic (SHA-256), so issuers and verifiers using the same name
    * always agree on the type. issue() and listCertificates() apply this
-   * automatically to any type that isn't already a 32-byte base64 value.
+   * automatically to any type that isn't already valid base64.
    *
    * @param name - Human-readable type name, e.g. 'employment'
    * @returns Base64-encoded 32-byte certificate type
@@ -838,17 +838,19 @@ export class PeerCert {
   }
 
   /**
-   * Normalize a certificate type: 32-byte base64 values pass through
-   * unchanged, anything else is treated as a human-readable name.
+   * Normalize a certificate type: syntactically valid base64 passes through
+   * unchanged (existing ecosystem type IDs come in many byte lengths, and
+   * rewriting them would silently orphan already-issued certificates);
+   * anything that cannot be base64 is treated as a human-readable name.
+   *
+   * Note: short names that happen to be valid base64 (base64 alphabet only
+   * and a multiple of 4 characters, e.g. 'work') pass through as-is — use
+   * certificateTypeFromName() explicitly if you want such a name hashed.
    * @private
    */
   private static normalizeCertificateType(type: string): string {
-    try {
-      if (/^[A-Za-z0-9+/]{43}=$/.test(type) && Utils.toArray(type, 'base64').length === 32) {
-        return type
-      }
-    } catch {
-      // Not valid base64: treat as a name
+    if (type.length > 0 && type.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(type)) {
+      return type
     }
     return PeerCert.certificateTypeFromName(type)
   }

@@ -184,6 +184,19 @@ describe('PeerCert', () => {
       expect(cert.type).toBe(rawType)
     })
 
+    it('passes existing base64 types of other byte lengths through unchanged', async () => {
+      // Ecosystem type IDs are not always 32 bytes; rewriting them would
+      // orphan already-issued certificates (e.g. peercert-ui's 31-byte type)
+      const legacyType = Utils.toBase64(Utils.toArray('peercert-skill-endorsement-v001', 'utf8'))
+      const peercert = new PeerCert(certifierWallet)
+      const cert = await peercert.issue({
+        certificateType: legacyType,
+        subjectIdentityKey: subjectPub,
+        fields: { role: 'Engineer' }
+      })
+      expect(cert.type).toBe(legacyType)
+    })
+
     it('auto-sends the certificate via MessageBox when requested', async () => {
       const peercert = new PeerCert(certifierWallet)
       const cert = await peercert.issue({
@@ -607,6 +620,27 @@ describe('PeerCert', () => {
     it('produces different types for different names', () => {
       expect(PeerCert.certificateTypeFromName('employment'))
         .not.toBe(PeerCert.certificateTypeFromName('education'))
+    })
+
+    it('normalization only hashes strings that cannot be base64', async () => {
+      const peercert = new PeerCert(certifierWallet)
+      // Names with non-base64 characters or a non-multiple-of-4 length are hashed
+      for (const name of ['employment', 'skill-endorsement', 'reputation v2']) {
+        const cert = await peercert.issue({
+          certificateType: name,
+          subjectIdentityKey: subjectPub,
+          fields: { role: 'x' }
+        })
+        expect(cert.type).toBe(PeerCert.certificateTypeFromName(name))
+      }
+      // A base64-shaped string (alphabet only, length % 4 === 0) passes through
+      const ambiguous = 'work'
+      const cert = await peercert.issue({
+        certificateType: ambiguous,
+        subjectIdentityKey: subjectPub,
+        fields: { role: 'x' }
+      })
+      expect(cert.type).toBe(ambiguous)
     })
   })
 

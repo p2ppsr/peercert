@@ -350,7 +350,7 @@ const peercert = new PeerCert(myWallet, {
 Issue a certificate to a peer.
 
 **Parameters:** `IssueOptions`
-- `certificateType: string` - Certificate type: a 32-byte base64 identifier, or any human-readable name (e.g. `'employment'`), which is deterministically normalized via `PeerCert.certificateTypeFromName()`
+- `certificateType: string` - Certificate type: a base64 type ID (used as-is), or any human-readable name (e.g. `'employment'`), which is deterministically normalized via `PeerCert.certificateTypeFromName()`. Only strings that cannot be base64 are normalized, so existing type IDs are never rewritten.
 - `subjectIdentityKey: string` - The peer's identity public key
 - `fields: Record<string, string>` - Certificate fields to attest
 - `autoSend?: boolean` - Automatically send via MessageBox (defaults to false)
@@ -564,7 +564,7 @@ const result = await peercert.receive(compact) // receive() decodes automaticall
 
 ### `PeerCert.certificateTypeFromName(name)`
 
-Derive a 32-byte base64 certificate type from a human-readable name (SHA-256, deterministic). `issue()` and `listCertificates()` apply this automatically, so you rarely need to call it yourself — it's exposed so independent verifiers can compute the same type identifier.
+Derive a 32-byte base64 certificate type from a human-readable name (SHA-256, deterministic). `issue()` and `listCertificates()` apply this automatically to any type that isn't already valid base64, so you rarely need to call it yourself — it's exposed so independent verifiers can compute the same type identifier. Note: a short name that happens to be base64-shaped (base64 alphabet, multiple of 4 characters, e.g. `'work'`) passes through unchanged — call this method explicitly if you want such a name hashed.
 
 **Parameters:**
 - `name: string` - Human-readable type name, e.g. `'employment'`
