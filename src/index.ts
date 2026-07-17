@@ -14,9 +14,9 @@
  * const wallet = new WalletClient()
  * const peercert = new PeerCert(wallet)
  * 
- * // Issue a certificate
- * const result = await peercert.issue({
- *   certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
+ * // Issue a certificate (human-readable type names are normalized automatically)
+ * const cert = await peercert.issue({
+ *   certificateType: 'employment',
  *   subjectIdentityKey: '03abc...',
  *   fields: { role: 'Engineer', company: 'ACME Corp' }
  * })
@@ -37,7 +37,8 @@ export { PeerCert } from './PeerCert.js'
 export {
   encodeCertificate,
   decodeCertificate,
-  estimateEncodedSize
+  estimateEncodedSize,
+  type DecodedCertificate
 } from './serialization.js'
 
 export type {
@@ -52,5 +53,6 @@ export type {
   VerifyVerifiableCertificateOptions,
   VerifyVerifiableCertificateResult,
   RevocationStatus,
-  RevokeResult
+  RevokeResult,
+  ListCertificatesOptions
 } from './types.js'

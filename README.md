@@ -29,14 +29,13 @@ npm install peercert
 ### Auto-Send via MessageBox (Simplest)
 
 ```typescript
-import { Utils } from '@bsv/sdk'
 import { PeerCert } from 'peercert'
 
 const peercert = new PeerCert()
 
 // Issue and automatically send via MessageBox
 await peercert.issue({
-  certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
+  certificateType: 'employment', // Human-readable names are normalized automatically
   subjectIdentityKey: '03abc123...', // Peer's identity key
   fields: {
     role: 'Engineer',
@@ -52,7 +51,7 @@ await peercert.issue({
 ```typescript
 // Issue the certificate
 const masterCert = await peercert.issue({
-  certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
+  certificateType: 'employment',
   subjectIdentityKey: '03abc123...',
   fields: { role: 'Engineer', company: 'ACME Corp' }
 })
@@ -64,8 +63,8 @@ await peercert.send({
 })
 
 // Or send via other methods (QR code, NFC, file, etc.)
-const serialized = JSON.stringify(masterCert)
-// Display as QR, write to NFC, save to file, etc.
+const compact = PeerCert.encodeCertificate(masterCert) // Compact base64, 50-70% smaller than JSON
+// Display as QR (`peercert:${compact}`), write to NFC, save to file, etc.
 ```
 
 ### Custom Wallet (Optional)
@@ -118,11 +117,19 @@ await peercert.listenForCertificates(async (serializedCertificate, messageId, se
 
 **From Other Sources (QR, NFC, File, etc.):**
 
+`receive()` accepts every format a certificate can arrive in:
+
 ```typescript
-// Receive from string
+// JSON string
 const result = await peercert.receive(serializedCertString)
 
-// Or receive from MasterCertificate object
+// Compact base64 string (from a QR code or URL)
+const result = await peercert.receive(qrData.replace('peercert:', ''))
+
+// Raw binary (from an NFC tag or file)
+const result = await peercert.receive(uint8ArrayFromNfc)
+
+// MasterCertificate object
 const result = await peercert.receive(masterCertObject)
 
 if (result.success) {
@@ -139,14 +146,14 @@ After receiving a certificate, you can publicly reveal selected attributes to th
 
 ```typescript
 // Get your wallet certificate from storage
-const certs = await wallet.listCertificates({
+const certs = await peercert.listCertificates({
   certifiers: [issuerPublicKey],
-  types: [certificateType]
+  types: ['employment'] // Same value you issued with
 })
 
 // Publicly reveal only selected fields
 const broadcastResult = await peercert.reveal({
-  certificate: certs.certificates[0],
+  certificate: certs[0],
   fieldsToReveal: ['role', 'company'] // Only these fields go public
 })
 
@@ -160,14 +167,11 @@ Create certificates that reveal only specific fields to a verifier:
 
 ```typescript
 // You have a certificate in your wallet
-const certs = await wallet.listCertificates({
-  certifiersRequired: ['all'], // Get certificates with keyring
-  limit: 1
-})
+const certs = await peercert.listCertificates({ limit: 1 })
 
 // Create a verifiable certificate revealing only some fields
 const verifiableCert = await peercert.createVerifiableCertificate({
-  certificate: certs.certificates[0],
+  certificate: certs[0],
   verifierPublicKey: '03verifier...',
   fieldsToReveal: ['role', 'company'] // Only these fields revealed
 })
@@ -193,13 +197,12 @@ for (const cert of incoming) {
     { checkRevocation: true }
   )
   
-  if (result.verified) {
-    if (result.revocationStatus?.isRevoked) {
-      console.log('⚠️  Certificate has been revoked!')
-    } else {
-      console.log('✅ Certificate is valid')
-      console.log('Revealed fields:', result.fields)
-    }
+  // Revoked certificates fail closed: result.verified is false
+  if (result.verified && result.revocationStatus?.status === 'valid') {
+    console.log('✅ Certificate is valid')
+    console.log('Revealed fields:', result.fields)
+  } else {
+    console.log('⚠️  Rejected:', result.error ?? result.revocationStatus?.message)
   }
 }
 ```
@@ -210,12 +213,10 @@ for (const cert of incoming) {
 
 ```typescript
 // Get a certificate you issued
-const issuedCerts = await wallet.listCertificates({
-  limit: 1
-})
+const issuedCerts = await peercert.listCertificates({ limit: 1 })
 
 // Revoke it
-const result = await peercert.revoke(issuedCerts.certificates[0])
+const result = await peercert.revoke(issuedCerts[0])
 
 if (result.success) {
   console.log('Certificate revoked! TXID:', result.txid)
@@ -230,11 +231,13 @@ if (result.success) {
 // Check if any certificate has been revoked
 const status = await peercert.checkRevocation(certificate)
 
-if (status.isRevoked) {
-  console.log('⚠️  Certificate has been revoked')
-  console.log(status.message)
-} else {
+if (status.status === 'valid') {
   console.log('✅ Certificate is still valid')
+} else if (status.status === 'revoked') {
+  console.log('⚠️  Certificate has been revoked')
+} else {
+  // 'unknown': the lookup failed — do NOT assume the certificate is valid
+  console.log('❓ Could not determine revocation status:', status.message)
 }
 ```
 
@@ -244,7 +247,7 @@ if (status.isRevoked) {
 Build decentralized reputation systems where peers vouch for each other:
 ```typescript
 await peercert.issue({
-  certificateType: Utils.toBase64(Utils.toArray('reputation', 'utf8')),
+  certificateType: 'reputation',
   subjectIdentityKey: peerKey,
   fields: {
     rating: '5',
@@ -258,7 +261,7 @@ await peercert.issue({
 Peers can verify each other's identity attributes:
 ```typescript
 await peercert.issue({
-  certificateType: Utils.toBase64(Utils.toArray('identity-verification', 'utf8')),
+  certificateType: 'identity-verification',
   subjectIdentityKey: peerKey,
   fields: {
     verified_name: 'true',
@@ -272,7 +275,7 @@ await peercert.issue({
 Create professional endorsements without centralized platforms:
 ```typescript
 await peercert.issue({
-  certificateType: Utils.toBase64(Utils.toArray('skill-endorsement', 'utf8')),
+  certificateType: 'skill-endorsement',
   subjectIdentityKey: peerKey,
   fields: {
     skill: 'Smart Contract Development',
@@ -347,7 +350,7 @@ const peercert = new PeerCert(myWallet, {
 Issue a certificate to a peer.
 
 **Parameters:** `IssueOptions`
-- `certificateType: string` - Certificate type identifier (base64 encoded)
+- `certificateType: string` - Certificate type: a 32-byte base64 identifier, or any human-readable name (e.g. `'employment'`), which is deterministically normalized via `PeerCert.certificateTypeFromName()`
 - `subjectIdentityKey: string` - The peer's identity public key
 - `fields: Record<string, string>` - Certificate fields to attest
 - `autoSend?: boolean` - Automatically send via MessageBox (defaults to false)
@@ -359,12 +362,27 @@ Issue a certificate to a peer.
 Receive and verify a certificate from a peer.
 
 **Parameters:**
-- `certificate: string | MasterCertificate` - Serialized certificate JSON or MasterCertificate object
+- `certificate: string | Uint8Array | MasterCertificate | DecodedCertificate` - Any supported format:
+  - JSON string (from MessageBox or `JSON.stringify(cert)`)
+  - Compact base64 string (from `PeerCert.encodeCertificate()`, e.g. QR codes/URLs)
+  - Raw binary `Uint8Array` (e.g. from NFC tags or files)
+  - `MasterCertificate` or decoded certificate object
 
 **Returns:** `Promise<ReceiveResult>`
 - `success: boolean` - Whether the operation succeeded
 - `walletCertificate?: WalletCertificate` - The stored certificate
 - `error?: string` - Error message if failed
+
+### `peercert.listCertificates(options?)`
+
+List certificates held in your wallet.
+
+**Parameters:** `ListCertificatesOptions` (all optional)
+- `certifiers?: string[]` - Only certificates issued by these certifier public keys
+- `types?: string[]` - Only certificates of these types (human-readable names are normalized the same way as in `issue()`)
+- `limit?: number` - Maximum number of certificates to return
+
+**Returns:** `Promise<WalletCertificate[]>` - The matching certificates
 
 ### `peercert.reveal(options)`
 
@@ -391,12 +409,13 @@ Send a certificate to a recipient via MessageBox.
 
 List incoming certificates from your MessageBox.
 
-**Returns:** `Promise<PendingCertificate[]>` - Array of incoming certificates
+**Returns:** `Promise<IncomingCertificate[]>` - Array of incoming certificates
 
-**PendingCertificate Type:**
+**IncomingCertificate Type:**
 - `serializedCertificate: string` - Serialized certificate JSON
 - `messageId: string` - MessageBox message ID for acknowledgment
 - `sender: string` - Sender's identity public key
+- `issuance: boolean` - Whether this was issued TO you (use `receive()`) or shared for inspection (use `verifyVerifiableCertificate()`)
 
 ### `peercert.acknowledgeCertificate(messageId)`
 
@@ -433,24 +452,24 @@ Create a verifiable certificate that reveals only selected fields to a verifier.
 
 **Example:**
 ```typescript
-const certs = await wallet.listCertificates({
-  certifiers: ['certifierIdentityKey'], // Required to get keyring
+const certs = await peercert.listCertificates({
+  certifiers: ['certifierIdentityKey'],
   limit: 1
 })
 
 const verifiable = await peercert.createVerifiableCertificate({
-  certificate: certs.certificates[0],
+  certificate: certs[0],
   verifierPublicKey: '03verifier...',
   fieldsToReveal: ['role', 'company']
 })
 ```
 
-### `peercert.verifyVerifiableCertificate(serializedCertificate, options?)`
+### `peercert.verifyVerifiableCertificate(certificate, options?)`
 
 Verify and decrypt a verifiable certificate shared with you.
 
 **Parameters:**
-- `serializedCertificate: string` - Serialized verifiable certificate JSON
+- `certificate: string | VerifiableCertificate | object` - The verifiable certificate as a JSON string, `VerifiableCertificate` instance, or plain object
 - `options?: VerifyVerifiableCertificateOptions`
   - `checkRevocation?: boolean` - Automatically check if certificate has been revoked (default: false)
 
@@ -460,13 +479,15 @@ Verify and decrypt a verifiable certificate shared with you.
 - `revocationStatus?: RevocationStatus` - Revocation status if checkRevocation was enabled
 - `error?: string` - Error message if verification failed
 
+With `checkRevocation: true`, a revoked certificate fails closed: `verified` is `false` and `error` explains why. If the revocation lookup itself fails, `verified` reflects the signature check but `revocationStatus.status` is `'unknown'` — treat that as unconfirmed in trust-sensitive flows.
+
 **Example:**
 ```typescript
 const result = await peercert.verifyVerifiableCertificate(certString, {
   checkRevocation: true
 })
 
-if (result.verified && !result.revocationStatus?.isRevoked) {
+if (result.verified && result.revocationStatus?.status === 'valid') {
   console.log('Valid certificate:', result.fields)
 }
 ```
@@ -479,7 +500,8 @@ Check if a certificate has been revoked.
 - `certificate: WalletCertificate` - Certificate to check
 
 **Returns:** `Promise<RevocationStatus>`
-- `isRevoked: boolean` - Whether the certificate has been revoked
+- `status: 'valid' | 'revoked' | 'unknown'` - The revocation state; `'unknown'` means the lookup failed and the certificate could NOT be confirmed valid
+- `isRevoked: boolean` - True only when the certificate is definitively revoked
 - `revocationOutpoint: string` - The revocation outpoint that was checked
 - `message?: string` - Additional details about revocation status
 
@@ -487,8 +509,8 @@ Check if a certificate has been revoked.
 ```typescript
 const status = await peercert.checkRevocation(myCertificate)
 
-if (status.isRevoked) {
-  console.log('Certificate has been revoked')
+if (status.status !== 'valid') {
+  console.log('Do not trust this certificate:', status.message)
 }
 ```
 
@@ -514,12 +536,46 @@ if (result.success) {
 }
 ```
 
+### `PeerCert.encodeCertificate(certificate, outputFormat?)`
+
+Encode a MasterCertificate to a compact binary format — typically 50-70% smaller than JSON. Ideal for QR codes, NFC tags, URLs, and files.
+
+**Parameters:**
+- `certificate: MasterCertificate` - The certificate to encode
+- `outputFormat?: 'base64' | 'binary'` - `'base64'` (default) returns a string; `'binary'` returns a `Uint8Array`
+
+**Returns:** `string | Uint8Array`
+
+### `PeerCert.decodeCertificate(encoded)`
+
+Decode a compact certificate back to certificate data. The format is detected from the input type (string = base64, `Uint8Array` = binary). Decoding is hardened against untrusted input: malformed or malicious payloads throw a clear error.
+
+**Parameters:**
+- `encoded: string | Uint8Array` - The compact certificate
+
+**Returns:** `DecodedCertificate` - Certificate data, which `receive()` accepts directly
+
+**Example:**
+```typescript
+// QR code contents: 'peercert:AQd...'
+const compact = qrData.replace('peercert:', '')
+const result = await peercert.receive(compact) // receive() decodes automatically
+```
+
+### `PeerCert.certificateTypeFromName(name)`
+
+Derive a 32-byte base64 certificate type from a human-readable name (SHA-256, deterministic). `issue()` and `listCertificates()` apply this automatically, so you rarely need to call it yourself — it's exposed so independent verifiers can compute the same type identifier.
+
+**Parameters:**
+- `name: string` - Human-readable type name, e.g. `'employment'`
+
+**Returns:** `string` - Base64-encoded 32-byte certificate type
+
 ## Complete Example
 
 Here's a complete workflow showing certificate issuance, receipt, and public reveal:
 
 ```typescript
-import { Utils } from '@bsv/sdk'
 import { PeerCert } from 'peercert'
 
 // Step 1: Alice issues a certificate to Bob
@@ -527,7 +583,7 @@ const alicePeercert = new PeerCert()
 const bobPublicKey = '02bob...'
 
 const masterCert = await alicePeercert.issue({
-  certificateType: Utils.toBase64(Utils.toArray('professional-endorsement', 'utf8')),
+  certificateType: 'professional-endorsement',
   subjectIdentityKey: bobPublicKey,
   fields: {
     skill: 'TypeScript Development',
@@ -554,14 +610,13 @@ console.log('Certifier:', result.walletCertificate?.certifier)
 
 // Step 3: Bob publicly reveals some fields on the overlay network
 // First get the certificate from Bob's wallet
-const bobWallet = bobPeercert['wallet'] // Access internal wallet
-const certs = await bobWallet.listCertificates({
+const certs = await bobPeercert.listCertificates({
   certifiers: [alicePublicKey],
-  types: [Utils.toBase64(Utils.toArray('professional-endorsement', 'utf8'))]
+  types: ['professional-endorsement'] // Same value Alice issued with
 })
 
 const broadcastResult = await bobPeercert.reveal({
-  certificate: certs.certificates[0],
+  certificate: certs[0],
   fieldsToReveal: ['skill', 'level'] // Only these fields go public
 })
 
@@ -580,7 +635,8 @@ console.log('Certificate revealed:', broadcastResult.txid)
 4. **Revocation**: 
    - All certificates include DID-based revocation outpoints on the BSV blockchain
    - Use `checkRevocation()` to manually verify revocation status
-   - Use `verifyVerifiableCertificate()` with `checkRevocation: true` for automatic checking
+   - Use `verifyVerifiableCertificate()` with `checkRevocation: true` for automatic checking — revoked certificates fail closed (`verified: false`)
+   - In trust-sensitive flows, only accept a certificate when `revocationStatus.status === 'valid'`; a status of `'unknown'` means the lookup failed, not that the certificate is valid
    - Issuers can revoke certificates they issued using `revoke()`
 5. **Private Keys**: Never share your wallet's private keys - certificates use identity-based encryption
 6. **Verifiable Certificates**: When creating verifiable certificates, only specified fields are decryptable by the verifier

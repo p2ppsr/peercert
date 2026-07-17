@@ -34,8 +34,13 @@ export interface PeerCertOptions {
  * Options for issuing a new certificate
  */
 export interface IssueOptions {
-  /** Base64-encoded certificate type identifier */
-  certificateType: Base64String
+  /**
+   * Certificate type identifier. Either a 32-byte base64 type (used as-is)
+   * or any human-readable name (e.g. 'employment'), which is deterministically
+   * normalized to a 32-byte base64 type via SHA-256. Use the same value when
+   * filtering with listCertificates().
+   */
+  certificateType: Base64String | string
 
   /** Public key of the certificate subject */
   subjectIdentityKey: PubKeyHex
@@ -157,9 +162,22 @@ export interface VerifyVerifiableCertificateResult {
 
 /**
  * Result from checking certificate revocation status
+ *
+ * SECURITY: In trust-sensitive flows, only treat a certificate as valid when
+ * `status === 'valid'`. A status of 'unknown' means the revocation lookup
+ * failed (e.g. network error) and the certificate could not be verified
+ * either way — do not assume it is valid.
  */
 export interface RevocationStatus {
-  /** Whether the certificate has been revoked */
+  /**
+   * Revocation state:
+   * - 'valid': the revocation token exists on-chain (not revoked)
+   * - 'revoked': the revocation token was spent or not found (revoked)
+   * - 'unknown': the lookup failed; revocation could not be determined
+   */
+  status: 'valid' | 'revoked' | 'unknown'
+
+  /** True only when the certificate is definitively revoked (status === 'revoked') */
   isRevoked: boolean
 
   /** The revocation outpoint that was checked */
@@ -167,6 +185,24 @@ export interface RevocationStatus {
 
   /** Additional details if available */
   message?: string
+}
+
+/**
+ * Options for listing certificates held in your wallet
+ */
+export interface ListCertificatesOptions {
+  /** Only include certificates issued by these certifier public keys (default: any) */
+  certifiers?: PubKeyHex[]
+
+  /**
+   * Only include certificates of these types (default: any).
+   * Human-readable names (e.g. 'employment') are normalized the same way
+   * as in issue(), so you can filter with the same value you issued with.
+   */
+  types?: string[]
+
+  /** Maximum number of certificates to return */
+  limit?: number
 }
 
 /**

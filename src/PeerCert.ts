@@ -3,6 +3,7 @@ import {
   IdentityClient,
   Utils,
   Random,
+  Hash,
   MasterCertificate,
   WalletClient,
   VerifiableCertificate,
@@ -10,7 +11,7 @@ import {
 } from '@bsv/sdk'
 import { DIDClient } from '@bsv/did-client'
 import { MessageBoxClient } from '@bsv/message-box-client'
-import { encodeCertificate, decodeCertificate } from './serialization'
+import { encodeCertificate, decodeCertificate, type DecodedCertificate } from './serialization'
 import type {
   PeerCertOptions,
   IssueOptions,
@@ -23,7 +24,8 @@ import type {
   VerifyVerifiableCertificateOptions,
   VerifyVerifiableCertificateResult,
   RevocationStatus,
-  RevokeResult
+  RevokeResult,
+  ListCertificatesOptions
 } from './types'
 
 /**
@@ -31,21 +33,23 @@ import type {
  * 
  * @example
  * ```typescript
- * import { WalletClient, Utils } from '@bsv/sdk'
- * import { PeerCert } from '@bsv/peercert'
- * 
+ * import { WalletClient } from '@bsv/sdk'
+ * import { PeerCert } from 'peercert'
+ *
  * const wallet = new WalletClient()
  * const peercert = new PeerCert(wallet)
- * 
- * // Issue a certificate
- * const result = await peercert.issue({
- *   certificateType: Utils.toBase64(Utils.toArray('employment', 'utf8')),
+ *
+ * // Issue a certificate (human-readable type names are normalized automatically)
+ * const cert = await peercert.issue({
+ *   certificateType: 'employment',
  *   subjectIdentityKey: '03abc...',
  *   fields: { role: 'Engineer', company: 'ACME Corp' }
  * })
- * 
- * // The serialized certificate can be sent via any channel (messagebox, QR, etc)
- * console.log('Send this:', result.serializedCertificate)
+ *
+ * // The certificate can be sent via any channel (MessageBox, QR, NFC, files)
+ * console.log('Send this:', JSON.stringify(cert))
+ * // Or compact binary for QR codes:
+ * console.log('QR data:', PeerCert.encodeCertificate(cert))
  * ```
  */
 export class PeerCert {
@@ -106,42 +110,48 @@ export class PeerCert {
 
   /**
    * Issue a new certificate to a peer
-   * 
+   *
    * Creates a certificate with encrypted fields that only the subject can decrypt.
-   * Returns both the master certificate metadata and the serialized certificate
-   * for transmission to the subject.
-   * 
+   * Returns the signed MasterCertificate, ready for transmission to the subject
+   * (via autoSend, send(), JSON, or PeerCert.encodeCertificate for QR/NFC).
+   *
+   * The certificate type may be a 32-byte base64 identifier or any
+   * human-readable name (e.g. 'employment'), which is deterministically
+   * normalized via {@link PeerCert.certificateTypeFromName}.
+   *
    * @param options - Certificate issuance options
-   * @returns Promise resolving to the issued certificate result
-   * 
+   * @returns Promise resolving to the issued MasterCertificate
+   *
    * @example
    * ```typescript
-   * const result = await peercert.issue({
-   *   certificateType: Utils.toBase64(Utils.toArray('skill', 'utf8')),
+   * const cert = await peercert.issue({
+   *   certificateType: 'skill',
    *   subjectIdentityKey: '03abc123...',
-   *   fields: { 
+   *   fields: {
    *     javascript: 'expert',
    *     typescript: 'advanced'
-   *   }
+   *   },
+   *   autoSend: true // deliver via MessageBox
    * })
-   * 
-   * console.log('Serial:', result.masterCertificate.serialNumber)
-   * console.log('Send this:', result.serializedCertificate)
+   *
+   * console.log('Serial:', cert.serialNumber)
    * ```
    */
   async issue(options: IssueOptions): Promise<MasterCertificate> {
-    const { certificateType, subjectIdentityKey, fields, autoSend } = options
+    const { subjectIdentityKey, fields, autoSend } = options
 
     // Validate inputs
     if (!subjectIdentityKey || typeof subjectIdentityKey !== 'string') {
       throw new Error('Valid subject public key is required')
     }
-    if (!certificateType || typeof certificateType !== 'string') {
+    if (!options.certificateType || typeof options.certificateType !== 'string') {
       throw new Error('Certificate type is required')
     }
     if (!fields || typeof fields !== 'object' || Object.keys(fields).length === 0) {
       throw new Error('At least one field is required')
     }
+
+    const certificateType = PeerCert.normalizeCertificateType(options.certificateType)
 
     // Generate serial number
     const serialNumber = Utils.toBase64(Random(32))
@@ -176,33 +186,49 @@ export class PeerCert {
   /**
    * Receive and store a certificate sent to you
    * 
-   * Accepts either a serialized certificate string or a MasterCertificate object.
+   * Accepts any of the formats a certificate can arrive in:
+   * - JSON string (from MessageBox or JSON.stringify(cert))
+   * - Compact base64 string (from PeerCert.encodeCertificate, e.g. QR codes/URLs)
+   * - Raw binary Uint8Array (e.g. from NFC tags or files)
+   * - MasterCertificate or decoded certificate object
+   *
    * Verifies the signature and stores it in your wallet. The wallet will automatically
    * decrypt the fields using your identity key.
-   * 
-   * @param certificate - Serialized certificate string or MasterCertificate object
+   *
+   * @param certificate - The certificate in any supported format
    * @returns Promise resolving to the receive result
-   * 
+   *
    * @example
    * ```typescript
-   * // From string
+   * // From JSON string
    * const result = await peercert.receive(serializedCertString)
-   * 
+   *
+   * // From a QR code (compact base64)
+   * const result = await peercert.receive(qrData.replace('peercert:', ''))
+   *
    * // From object
    * const result = await peercert.receive(masterCertificate)
-   * 
+   *
    * if (result.success) {
    *   console.log('Certificate stored in wallet')
    *   console.log('Certifier:', result.walletCertificate.certifier)
    * }
    * ```
    */
-  async receive(certificate: string | MasterCertificate): Promise<ReceiveResult> {
+  async receive(certificate: string | Uint8Array | MasterCertificate | DecodedCertificate): Promise<ReceiveResult> {
     try {
-      // Parse the certificate if it's a string
-      const certData = typeof certificate === 'string'
-        ? JSON.parse(certificate)
-        : certificate
+      // Normalize the input into certificate data
+      let certData: any
+      if (typeof certificate === 'string') {
+        const trimmed = certificate.trim()
+        certData = trimmed.startsWith('{')
+          ? JSON.parse(trimmed)
+          : decodeCertificate(trimmed) // compact base64 (QR/URL/file)
+      } else if (certificate instanceof Uint8Array) {
+        certData = decodeCertificate(certificate) // raw binary (NFC/file)
+      } else {
+        certData = certificate
+      }
 
       // Verify the certificate subject matches our identity key
       const myIdentityKey = await this.getMyIdentityKey()
@@ -295,18 +321,24 @@ export class PeerCert {
    * 
    * Queries the DID overlay network to determine if the certificate's
    * revocation outpoint has been spent (revoked) or is still unspent (valid).
-   * 
+   *
+   * SECURITY: If the overlay lookup fails (e.g. network error), the result
+   * has `status: 'unknown'` — the certificate is NOT confirmed valid. In
+   * trust-sensitive flows, only accept a certificate when `status === 'valid'`.
+   *
    * @param certificate - The certificate to check revocation status for
    * @returns Promise resolving to revocation status
-   * 
+   *
    * @example
    * ```typescript
    * const status = await peercert.checkRevocation(myCertificate)
-   * 
-   * if (status.isRevoked) {
+   *
+   * if (status.status === 'valid') {
+   *   console.log('Certificate is still valid')
+   * } else if (status.status === 'revoked') {
    *   console.log('Certificate has been revoked!')
    * } else {
-   *   console.log('Certificate is still valid')
+   *   console.log('Could not determine revocation status:', status.message)
    * }
    * ```
    */
@@ -323,6 +355,7 @@ export class PeerCert {
       const isRevoked = results.length === 0
 
       return {
+        status: isRevoked ? 'revoked' : 'valid',
         isRevoked,
         revocationOutpoint: certificate.revocationOutpoint,
         message: isRevoked
@@ -330,8 +363,10 @@ export class PeerCert {
           : 'Certificate is valid (DID token exists)'
       }
     } catch (error) {
-      // If query fails, we can't determine status
+      // Lookup failed: revocation cannot be determined either way. Report
+      // 'unknown' rather than claiming the certificate is valid.
       return {
+        status: 'unknown',
         isRevoked: false,
         revocationOutpoint: certificate.revocationOutpoint,
         message: `Unable to verify revocation status: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -451,28 +486,39 @@ export class PeerCert {
     })
 
     return messages.map(msg => {
-      try {
-        // Parse the message wrapper (body is a JSON string from send())
-        const parsed = typeof msg.body === 'string'
-          ? JSON.parse(msg.body)
-          : msg.body as Record<string, any>
-
-        return {
-          serializedCertificate: parsed.serializedCertificate,
-          messageId: msg.messageId,
-          sender: msg.sender,
-          issuance: parsed.issuance ?? true  // Default to true for backward compatibility
-        }
-      } catch (error) {
-        // If parsing fails, assume old format (raw certificate = issuance)
-        return {
-          serializedCertificate: msg.body as string,
-          messageId: msg.messageId,
-          sender: msg.sender,
-          issuance: true
-        }
+      const { serializedCertificate, issuance } = PeerCert.unwrapMessageBody(msg.body)
+      return {
+        serializedCertificate,
+        messageId: msg.messageId,
+        sender: msg.sender,
+        issuance
       }
     })
+  }
+
+  /**
+   * Unwrap a MessageBox message body into certificate payload + issuance flag.
+   * Supports the { serializedCertificate, issuance } wrapper written by send()
+   * and the legacy format where the body is the raw certificate itself.
+   * @private
+   */
+  private static unwrapMessageBody(body: unknown): { serializedCertificate: string, issuance: boolean } {
+    try {
+      const parsed = typeof body === 'string'
+        ? JSON.parse(body)
+        : body as Record<string, any>
+
+      if (parsed && typeof parsed === 'object' && 'serializedCertificate' in parsed) {
+        return {
+          serializedCertificate: parsed.serializedCertificate,
+          issuance: parsed.issuance ?? true // Default to true for backward compatibility
+        }
+      }
+    } catch {
+      // Not JSON: fall through to legacy handling
+    }
+    // Legacy format: the body is the raw certificate itself (an issuance)
+    return { serializedCertificate: body as string, issuance: true }
   }
 
   /**
@@ -522,19 +568,10 @@ export class PeerCert {
     await this.getMessageBoxClient().listenForLiveMessages({
       messageBox: PeerCert.PEERCERT_MESSAGEBOX,
       onMessage: async (message) => {
-        try {
-          // Parse the message wrapper
-          const parsed = JSON.parse(message.body as string)
-          await onCertificate(
-            parsed.serializedCertificate,
-            message.messageId,
-            message.sender,
-            parsed.issuance ?? true
-          )
-        } catch (error) {
-          // If parsing fails, assume old format (raw certificate = issuance)
-          await onCertificate(message.body as string, message.messageId, message.sender, true)
-        }
+        // Unwrap first, then invoke the callback exactly once — a throwing
+        // callback must not be retried with differently-shaped arguments.
+        const { serializedCertificate, issuance } = PeerCert.unwrapMessageBody(message.body)
+        await onCertificate(serializedCertificate, message.messageId, message.sender, issuance)
       }
     })
   }
@@ -630,40 +667,46 @@ export class PeerCert {
    * Optionally checks revocation status automatically.
    * This method is used when someone shares a certificate with you for inspection
    * (as opposed to issuing one to you via `receive()`).
-   * 
-   * @param serializedCertificate - Serialized verifiable certificate
+   *
+   * When `checkRevocation` is enabled and the certificate is revoked, the
+   * result has `verified: false`. If the revocation lookup fails, the result
+   * stays verified (signature-wise) but `revocationStatus.status` is
+   * 'unknown' — treat that as unconfirmed in trust-sensitive flows.
+   *
+   * @param certificate - The verifiable certificate: a serialized JSON string,
+   *   a VerifiableCertificate instance, or its plain-object form
    * @param options - Verification options
    * @returns Promise resolving to verification result with decrypted fields
-   * 
+   *
    * @example
    * ```typescript
    * const incoming = await peercert.listIncomingCertificates()
-   * 
+   *
    * for (const cert of incoming) {
    *   const result = await peercert.verifyVerifiableCertificate(
    *     cert.serializedCertificate,
    *     { checkRevocation: true }  // Auto-check revocation
    *   )
-   *   
-   *   if (result.verified) {
-   *     if (result.revocationStatus?.isRevoked) {
-   *       console.log(' Certificate has been revoked!')
-   *     } else {
-   *       console.log(' Certificate is valid')
-   *       console.log('Revealed fields:', result.fields)
-   *     }
+   *
+   *   if (result.verified && result.revocationStatus?.status === 'valid') {
+   *     console.log('Certificate is valid')
+   *     console.log('Revealed fields:', result.fields)
    *     await peercert.acknowledgeCertificate(cert.messageId)
+   *   } else {
+   *     console.log('Rejected:', result.error ?? result.revocationStatus?.message)
    *   }
    * }
    * ```
    */
   async verifyVerifiableCertificate(
-    serializedCertificate: string,
+    certificate: string | VerifiableCertificate | Record<string, any>,
     options?: VerifyVerifiableCertificateOptions
   ): Promise<VerifyVerifiableCertificateResult> {
     try {
-      // Parse the verifiable certificate
-      const certData = JSON.parse(serializedCertificate)
+      // Parse the verifiable certificate if serialized
+      const certData: any = typeof certificate === 'string'
+        ? JSON.parse(certificate)
+        : certificate
 
       // Create VerifiableCertificate instance
       const cert = new VerifiableCertificate(
@@ -699,6 +742,16 @@ export class PeerCert {
         result.revocationStatus = await this.checkRevocation({
           revocationOutpoint: cert.revocationOutpoint
         } as WalletCertificate)
+
+        // Fail closed: a definitively revoked certificate never verifies
+        if (result.revocationStatus.status === 'revoked') {
+          return {
+            verified: false,
+            fields,
+            revocationStatus: result.revocationStatus,
+            error: 'Certificate has been revoked'
+          }
+        }
       }
 
       return result
@@ -742,32 +795,93 @@ export class PeerCert {
 
   /**
    * Decode a compact binary certificate back to MasterCertificate data
-   * 
-   * @param encoded - Base64-encoded compact binary certificate
+   *
+   * The format is detected from the input type: strings are treated as base64,
+   * Uint8Arrays as raw binary. Decoding validates all lengths, so untrusted
+   * input (QR codes, URLs, NFC) throws a clear error instead of misbehaving.
+   *
+   * @param encoded - Base64 string or raw binary certificate
    * @returns Certificate data that can be used to reconstruct a MasterCertificate
-   * 
+   *
    * @example
    * ```typescript
    * // From QR code
    * const qrData = 'peercert:AQd...'
    * const compact = qrData.replace('peercert:', '')
    * const certData = PeerCert.decodeCertificate(compact)
-   * 
-   * // Receive it
-   * const result = await peercert.receive(JSON.stringify(certData))
+   *
+   * // Receive it (receive() also accepts the compact string directly)
+   * const result = await peercert.receive(certData)
    * ```
    */
-  static decodeCertificate(encoded: string | Uint8Array, inputFormat: 'binary' | 'base64' = 'base64'): {
-    type: string
-    serialNumber: string
-    subject: string
-    certifier: string
-    revocationOutpoint: string
-    fields: Record<string, string>
-    masterKeyring: Record<string, string>
-    signature: string
-  } {
-    return decodeCertificate(encoded, inputFormat)
+  static decodeCertificate(encoded: string | Uint8Array): DecodedCertificate {
+    return decodeCertificate(encoded)
+  }
+
+  /**
+   * Derive a 32-byte base64 certificate type from a human-readable name
+   *
+   * Deterministic (SHA-256), so issuers and verifiers using the same name
+   * always agree on the type. issue() and listCertificates() apply this
+   * automatically to any type that isn't already a 32-byte base64 value.
+   *
+   * @param name - Human-readable type name, e.g. 'employment'
+   * @returns Base64-encoded 32-byte certificate type
+   *
+   * @example
+   * ```typescript
+   * const employmentType = PeerCert.certificateTypeFromName('employment')
+   * ```
+   */
+  static certificateTypeFromName(name: string): string {
+    return Utils.toBase64(Hash.sha256(name, 'utf8'))
+  }
+
+  /**
+   * Normalize a certificate type: 32-byte base64 values pass through
+   * unchanged, anything else is treated as a human-readable name.
+   * @private
+   */
+  private static normalizeCertificateType(type: string): string {
+    try {
+      if (/^[A-Za-z0-9+/]{43}=$/.test(type) && Utils.toArray(type, 'base64').length === 32) {
+        return type
+      }
+    } catch {
+      // Not valid base64: treat as a name
+    }
+    return PeerCert.certificateTypeFromName(type)
+  }
+
+  /**
+   * List certificates held in your wallet
+   *
+   * Convenience wrapper around wallet.listCertificates(). Human-readable type
+   * names are normalized the same way as in issue(), so you can filter with
+   * the same value you issued with.
+   *
+   * @param options - Optional filters (certifiers, types, limit)
+   * @returns Promise resolving to the matching wallet certificates
+   *
+   * @example
+   * ```typescript
+   * // All my certificates
+   * const certs = await peercert.listCertificates()
+   *
+   * // Employment certificates from a specific certifier
+   * const certs = await peercert.listCertificates({
+   *   certifiers: ['03certifier...'],
+   *   types: ['employment']
+   * })
+   * ```
+   */
+  async listCertificates(options?: ListCertificatesOptions): Promise<WalletCertificate[]> {
+    const { certificates } = await this.wallet.listCertificates({
+      certifiers: options?.certifiers ?? [],
+      types: (options?.types ?? []).map(t => PeerCert.normalizeCertificateType(t)),
+      limit: options?.limit
+    }, this.options.originator)
+    return certificates
   }
 
   /**
