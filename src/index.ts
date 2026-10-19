@@ -56,3 +56,5 @@ export type {
   RevokeResult,
   ListCertificatesOptions
 } from './types.js'
+
+export { assertCertificateType } from './certificateType.js'

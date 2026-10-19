@@ -176,3 +176,16 @@ describe('serialization', () => {
     })
   })
 })
+
+describe('strict compact certificate types', () => {
+  it.each([0, 1, 31, 33])('rejects a %i-byte type on encode and estimate', length => {
+    const cert = makeCertData({ type: Utils.toBase64(Array(length).fill(7)) })
+    expect(() => encodeCertificate(cert)).toThrow('exactly 32 bytes')
+    expect(() => estimateEncodedSize(cert)).toThrow('exactly 32 bytes')
+  })
+  it.each([0, 1, 31, 33])('rejects a legacy %i-byte type on decode', length => {
+    const valid = Array.from(encodeCertificate(makeCertData(), 'binary') as Uint8Array)
+    const legacy = [1, length, ...Array(length).fill(7), ...valid.slice(34)]
+    expect(() => decodeCertificate(legacy)).toThrow('exactly 32 bytes')
+  })
+})

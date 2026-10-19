@@ -1,6 +1,6 @@
 {
   "name": "peercert",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Peer-to-peer certificate issuance and management.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -28,9 +28,9 @@
   "author": "Peer-to-peer Privacy Systems Research, LLC",
   "license": "Proprietary",
   "dependencies": {
-    "@bsv/did-client": "^1.2.0",
-    "@bsv/message-box-client": "^2.2.1",
-    "@bsv/sdk": "^2.1.7"
+    "@bsv/did-client": "1.2.0",
+    "@bsv/message-box-client": "2.2.1",
+    "@bsv/sdk": "3.2.1"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
@@ -48,5 +48,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/p2ppsr/peercert.git"
+  },
+  "overrides": {
+    "@bsv/sdk": "$@bsv/sdk"
   }
 }

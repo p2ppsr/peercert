@@ -350,7 +350,7 @@ const peercert = new PeerCert(myWallet, {
 Issue a certificate to a peer.
 
 **Parameters:** `IssueOptions`
-- `certificateType: string` - Certificate type: a base64 type ID (used as-is), or any human-readable name (e.g. `'employment'`), which is deterministically normalized via `PeerCert.certificateTypeFromName()`. Only strings that cannot be base64 are normalized, so existing type IDs are never rewritten.
+- `certificateType: string` - Certificate type: a canonical base64 type ID of exactly 32 bytes (used as-is), or a human-readable name (e.g. `'employment'`), which is deterministically normalized via `PeerCert.certificateTypeFromName()`. Only strings that cannot be base64 are normalized. Base64-shaped IDs of other lengths are rejected before creating a revocation token. Existing signed certificates are never rewritten.
 - `subjectIdentityKey: string` - The peer's identity public key
 - `fields: Record<string, string>` - Certificate fields to attest
 - `autoSend?: boolean` - Automatically send via MessageBox (defaults to false)
@@ -564,7 +564,7 @@ const result = await peercert.receive(compact) // receive() decodes automaticall
 
 ### `PeerCert.certificateTypeFromName(name)`
 
-Derive a 32-byte base64 certificate type from a human-readable name (SHA-256, deterministic). `issue()` and `listCertificates()` apply this automatically to any type that isn't already valid base64, so you rarely need to call it yourself — it's exposed so independent verifiers can compute the same type identifier. Note: a short name that happens to be base64-shaped (base64 alphabet, multiple of 4 characters, e.g. `'work'`) passes through unchanged — call this method explicitly if you want such a name hashed.
+Derive a 32-byte base64 certificate type from a human-readable name (SHA-256, deterministic). `issue()` and `listCertificates()` apply this automatically to any type that isn't already valid base64, so independent verifiers can compute the same type identifier. Prefer calling it explicitly with a stable, namespaced, versioned schema name. Note: a short name that happens to be base64-shaped (base64 alphabet, multiple of 4 characters, e.g. `'work'`) is rejected as a short encoded ID — call this method explicitly to hash the name.
 
 **Parameters:**
 - `name: string` - Human-readable type name, e.g. `'employment'`
@@ -666,3 +666,35 @@ Open BSV License
 ## Support
 
 For issues, questions, or contributions, please visit the [GitHub repository](https://github.com/p2ppsr/peercert)
+
+## 0.3 migration: strict certificate types
+
+Use a stable schema name for new issuance, for example:
+
+```typescript
+const skillType = PeerCert.certificateTypeFromName('peercert.io/skill-endorsement/v1')
+// SHA-256 of the exact UTF-8 name, then base64: 32 decoded bytes, 44 characters.
+```
+
+The name is case-sensitive and is not trimmed or otherwise normalized. Keep the
+human-readable title and schema metadata separately. The helper preserves its
+existing SHA-256 derivation for previously conforming name-based types.
+
+All certificate entry points and compact encoding now require a canonical
+32-byte type. PeerCert's compact v1 envelope retains its VarInt type length;
+this is distinct from the SDK wallet wire format, which has a fixed 32-byte type.
+Neither encoding turns a short identifier into a conforming type.
+
+Legacy certificates with shorter types require issuer reissuance under the new
+identifier. Padding, hashing or changing a stored type invalidates its signature.
+An unfiltered list containing legacy certificates can fail current SDK result
+validation; explicitly filtering for the new type can retrieve new certificates
+without rewriting legacy records. This does not migrate or recover old records.
+Signature verification must return `true` before receipt or proof acceptance.
+
+The tested dependency set pins SDK 3.2.1, DID client 1.2.0 and MessageBox client
+2.2.1. These helper releases still declare SDK 2 peer ranges; the development
+SDK override is intentional. Applications using SDK 3 should also keep their
+transitive SDK override (the PeerCert website does). Later helper releases
+currently import SDK subpaths absent from published SDK 3.2.1, so they are not
+silently pulled into this release.

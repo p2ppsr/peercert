@@ -35,10 +35,11 @@ export interface PeerCertOptions {
  */
 export interface IssueOptions {
   /**
-   * Certificate type identifier. Either a base64 type ID (used as-is)
+   * Certificate type identifier. Either a canonical base64 type ID of exactly 32 bytes (used as-is)
    * or any human-readable name (e.g. 'employment'), which is deterministically
    * normalized to a 32-byte base64 type via SHA-256. Use the same value when
-   * filtering with listCertificates().
+   * filtering with listCertificates(). Base64-shaped short names like 'work'
+   * must use certificateTypeFromName() explicitly; short encoded IDs are rejected.
    */
   certificateType: Base64String | string
 

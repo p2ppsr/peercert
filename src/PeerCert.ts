@@ -1,3 +1,4 @@
+import { assertCertificateType } from './certificateType.js'
 import {
   WalletInterface,
   IdentityClient,
@@ -230,6 +231,8 @@ export class PeerCert {
         certData = certificate
       }
 
+      assertCertificateType(certData?.type)
+
       // Verify the certificate subject matches our identity key
       const myIdentityKey = await this.getMyIdentityKey()
 
@@ -252,7 +255,9 @@ export class PeerCert {
         certData.signature
       )
 
-      await cert.verify()
+      if (await cert.verify() !== true) {
+        throw new Error('Invalid certificate signature')
+      }
 
       // Store via wallet's acquire certificate method
       const walletCertificate = await this.wallet.acquireCertificate({
@@ -310,6 +315,7 @@ export class PeerCert {
    * ```
    */
   async reveal(options: RevealOptions): Promise<RevealResult> {
+    assertCertificateType(options.certificate.type)
     return await this.identityClient.publiclyRevealAttributes(
       options.certificate,
       options.fieldsToReveal
@@ -630,6 +636,8 @@ export class PeerCert {
       throw new Error('At least one field to reveal is required')
     }
 
+    assertCertificateType(certificate.type)
+
     // Create keyring for the verifier using the MasterCertificate static method
     // Note: ts-sdk naming inconsistency - wallet.listCertificates() returns "keyring" 
     // but MasterCertificate.createKeyringForVerifier() expects "masterKeyring" parameter
@@ -708,6 +716,8 @@ export class PeerCert {
         ? JSON.parse(certificate)
         : certificate
 
+      assertCertificateType(certData?.type)
+
       // Create VerifiableCertificate instance
       const cert = new VerifiableCertificate(
         certData.type,
@@ -722,7 +732,9 @@ export class PeerCert {
       )
 
       // Verify the signature
-      await cert.verify()
+      if (await cert.verify() !== true) {
+        throw new Error('Invalid certificate signature')
+      }
 
       // Decrypt the revealed fields
       const fields = await cert.decryptFields(
@@ -834,22 +846,20 @@ export class PeerCert {
    * ```
    */
   static certificateTypeFromName(name: string): string {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      throw new Error('A non-empty certificate schema name is required')
+    }
     return Utils.toBase64(Hash.sha256(name, 'utf8'))
   }
 
   /**
-   * Normalize a certificate type: syntactically valid base64 passes through
-   * unchanged (existing ecosystem type IDs come in many byte lengths, and
-   * rewriting them would silently orphan already-issued certificates);
-   * anything that cannot be base64 is treated as a human-readable name.
-   *
-   * Note: short names that happen to be valid base64 (base64 alphabet only
-   * and a multiple of 4 characters, e.g. 'work') pass through as-is — use
-   * certificateTypeFromName() explicitly if you want such a name hashed.
-   * @private
+   * Preserve conforming IDs; reject ambiguous base64-shaped legacy IDs.
+   * Non-base64 names retain deterministic SHA-256 normalization. For names
+   * such as 'work', call certificateTypeFromName() explicitly.
    */
   private static normalizeCertificateType(type: string): string {
     if (type.length > 0 && type.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(type)) {
+      assertCertificateType(type)
       return type
     }
     return PeerCert.certificateTypeFromName(type)
@@ -883,6 +893,7 @@ export class PeerCert {
       types: (options?.types ?? []).map(t => PeerCert.normalizeCertificateType(t)),
       limit: options?.limit
     }, this.options.originator)
+    certificates.forEach(cert => assertCertificateType(cert.type))
     return certificates
   }
 

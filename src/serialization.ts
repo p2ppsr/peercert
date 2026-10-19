@@ -1,3 +1,4 @@
+import { assertCertificateType } from './certificateType.js'
 import { Utils } from '@bsv/sdk'
 import type { MasterCertificate } from '@bsv/sdk'
 
@@ -57,6 +58,7 @@ export function encodeCertificate(cert: MasterCertificate, outputFormat: 'binary
   writer.write([VERSION])
 
   // Type (base64 string -> bytes)
+  assertCertificateType(cert.type)
   const typeBytes = Utils.toArray(cert.type, 'base64')
   writer.writeVarIntNum(typeBytes.length)
   writer.write(typeBytes)
@@ -196,6 +198,7 @@ export function decodeCertificate(encoded: Uint8Array | number[] | string, input
   // Type
   const typeBytes = readBytes(readVarLength('type'), 'type')
   const type = Utils.toBase64(typeBytes)
+  assertCertificateType(type)
 
   // Serial number (32 bytes fixed)
   const serialBytes = readBytes(32, 'serial number')
@@ -275,6 +278,7 @@ export function estimateEncodedSize(cert: MasterCertificate): number {
   size += 1 // version
 
   // Type (VarInt length + data)
+  assertCertificateType(cert.type)
   const typeBytes = Utils.toArray(cert.type, 'base64')
   size += varIntSize(typeBytes.length) + typeBytes.length
 

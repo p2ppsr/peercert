@@ -160,7 +160,7 @@ describe('PeerCert', () => {
       expect(cert.subject).toBe(subjectPub)
       expect(cert.revocationOutpoint).toBe(DUMMY_OUTPOINT)
       expect(Utils.toArray(cert.serialNumber, 'base64')).toHaveLength(32)
-      await expect(cert.verify()).resolves.toBeDefined()
+      await expect(cert.verify()).resolves.toBe(true)
     })
 
     it('normalizes human-readable certificate types deterministically', async () => {
@@ -184,17 +184,14 @@ describe('PeerCert', () => {
       expect(cert.type).toBe(rawType)
     })
 
-    it('passes existing base64 types of other byte lengths through unchanged', async () => {
-      // Ecosystem type IDs are not always 32 bytes; rewriting them would
-      // orphan already-issued certificates (e.g. peercert-ui's 31-byte type)
-      const legacyType = Utils.toBase64(Utils.toArray('peercert-skill-endorsement-v001', 'utf8'))
+    it.each([1, 31, 33])('rejects a %i-byte encoded type before spending on a DID', async length => {
       const peercert = new PeerCert(certifierWallet)
-      const cert = await peercert.issue({
-        certificateType: legacyType,
+      await expect(peercert.issue({
+        certificateType: Utils.toBase64(new Array(length).fill(5)),
         subjectIdentityKey: subjectPub,
         fields: { role: 'Engineer' }
-      })
-      expect(cert.type).toBe(legacyType)
+      })).rejects.toThrow('exactly 32 bytes')
+      expect(mockCreateDID).not.toHaveBeenCalled()
     })
 
     it('auto-sends the certificate via MessageBox when requested', async () => {
@@ -278,6 +275,13 @@ describe('PeerCert', () => {
 
       const result = await subjectPeerCert.receive(JSON.stringify(tampered))
       expect(result.success).toBe(false)
+      expect(subjectWallet.acquireCertificate).not.toHaveBeenCalled()
+    })
+
+    it('rejects a short type before acquiring a certificate', async () => {
+      const result = await subjectPeerCert.receive({ ...cert, type: Utils.toBase64(Array(31).fill(7)) } as any)
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('exactly 32 bytes')
       expect(subjectWallet.acquireCertificate).not.toHaveBeenCalled()
     })
 
@@ -471,6 +475,20 @@ describe('PeerCert', () => {
       expect(result.fields).toEqual({ role: 'Engineer', company: 'ACME' })
     })
 
+    it('rejects a tampered proof even when its keyring still decrypts', async () => {
+      const verifiable = await subjectPeerCert.createVerifiableCertificate({
+        certificate: certificateWithKeyring,
+        verifierPublicKey: verifierPub,
+        fieldsToReveal: ['role']
+      })
+      // A different, well-formed signature: verification returns false.
+      const other = await issueRealCert(certifierWallet, subjectPub)
+      verifiable.signature = other.signature
+      const result = await verifierPeerCert.verifyVerifiableCertificate(verifiable)
+      expect(result.verified).toBe(false)
+      expect(result.fields).toBeUndefined()
+    })
+
     it('fails verification for the wrong verifier', async () => {
       const verifiable = await subjectPeerCert.createVerifiableCertificate({
         certificate: certificateWithKeyring,
@@ -550,7 +568,7 @@ describe('PeerCert', () => {
   describe('reveal', () => {
     it('delegates to identityClient.publiclyRevealAttributes', async () => {
       const certificate = {
-        type: 'test-type',
+        type: PeerCert.certificateTypeFromName('test-type'),
         subject: '03subject',
         certifier: '03certifier',
         serialNumber: 'abc123',
@@ -571,7 +589,7 @@ describe('PeerCert', () => {
 
   describe('listCertificates', () => {
     it('lists all certificates by default', async () => {
-      const stored = [{ serialNumber: 'a' }]
+      const stored = [{ serialNumber: 'a', type: PeerCert.certificateTypeFromName('employment') }]
       ;(subjectWallet.listCertificates as any).mockResolvedValue({ totalCertificates: 1, certificates: stored })
 
       const certs = await new PeerCert(subjectWallet).listCertificates()
@@ -633,14 +651,19 @@ describe('PeerCert', () => {
         })
         expect(cert.type).toBe(PeerCert.certificateTypeFromName(name))
       }
-      // A base64-shaped string (alphabet only, length % 4 === 0) passes through
+      // Ambiguous base64-shaped names require explicit derivation.
       const ambiguous = 'work'
-      const cert = await peercert.issue({
+      await expect(peercert.issue({
         certificateType: ambiguous,
         subjectIdentityKey: subjectPub,
         fields: { role: 'x' }
+      })).rejects.toThrow('exactly 32 bytes')
+      const cert = await peercert.issue({
+        certificateType: PeerCert.certificateTypeFromName(ambiguous),
+        subjectIdentityKey: subjectPub,
+        fields: { role: 'x' }
       })
-      expect(cert.type).toBe(ambiguous)
+      expect(cert.type).toBe(PeerCert.certificateTypeFromName(ambiguous))
     })
   })
 
